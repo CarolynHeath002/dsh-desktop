@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package:
@@ -51,3 +51,23 @@ jobs:
           path: |
             dsh-plugin-desktop/dist/*-Setup.exe
             dsh-plugin-desktop/dist/*-Portable.zip
+      - name: Resolve installed version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./dsh-plugin-desktop/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ steps.version.outputs.version }}-hardened
+          TITLE: DSH Desktop v${{ steps.version.outputs.version }} (privacy-hardened)
+        run: |
+          set -euo pipefail
+          ASSETS=(dsh-plugin-desktop/dist/*-Setup.exe dsh-plugin-desktop/dist/*-Portable.zip)
+          NOTES=$(cat docs/privacy-hardening.md)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber "${ASSETS[@]}"
+          else
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" "${ASSETS[@]}"
+          fi
