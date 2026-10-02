@@ -104,6 +104,26 @@ const DESKTOP_WINDOWS_PWSH_SANDBOX_ROW_ID = 'desktop-windows-pwsh-sandbox'
 const DESKTOP_WINDOWS_PWSH_SANDBOX_PACKAGE = `${DESKTOP_PACKAGE_NAME}/windows-pwsh-sandbox`
 /** Upstream Web rows that exist only to send Desktop product analytics to DeepSeek. */
 export const UPSTREAM_PRODUCT_ANALYTICS_ROW_IDS = ['desktop-product-telemetry', 'product-analytics'] as const
+/**
+ * Privacy hardening: rows this build always disables regardless of bundle
+ * defaults, profile patches, or environment. `session-telemetry-otel` uploads
+ * Session records after feedback; `session-log-deepseek` uploads the canonical
+ * Session log with each official model request by default; the two
+ * product-analytics rows report Desktop usage to DeepSeek; `web-search-deepseek`
+ * sends raw search terms to the configured DeepSeek endpoint when the model
+ * invokes web_search (and `ui-settings-web-search` is its now-orphaned switch);
+ * `desktop-updates` owns the in-app update channel whose requests reach
+ * dshdesktop.cn.
+ */
+const PRIVACY_HARDENING_DISABLED_ROW_IDS = [
+  'session-telemetry-otel',
+  'session-log-deepseek',
+  'web-search-deepseek',
+  'ui-settings-web-search',
+  'desktop-updates',
+  ...UPSTREAM_PRODUCT_ANALYTICS_ROW_IDS,
+] as const
+
 const DEFAULT_DESKTOP_SHELL_MODE: DesktopShellMode = 'compatibility'
 const DEFAULT_DESKTOP_PORT = DESKTOP_DEFAULT_WEB_PORT
 const DESKTOP_WEB_SERVER_ROW_ID = 'desktop-webserver'
@@ -1234,6 +1254,7 @@ export function prepareDesktopProfile(
   marketSelection: DesktopMarketSnapshot = DEFAULT_DESKTOP_MARKET_SNAPSHOT,
   hooks: DesktopProfilePreparationHooks = {},
 ): PreparedDesktopProfile {
+  const aaEnabled = hooks.aaEnabled === true
   const lanAddresses = preparedLanAddresses(hooks.lanAddresses)
   const profileDir = profileName === DESKTOP_PROFILE_NAME
     ? ensureDesktopProfile(home)
@@ -1254,7 +1275,7 @@ export function prepareDesktopProfile(
     profileDir,
     disabledBundles,
     marketSelection.requested,
-    hooks.aaEnabled === true,
+    aaEnabled,
   )
   // Only the patch document is substitutable: bundle layers, disabled-bundle
   // filtering and Market/AA admission stay launcher-owned even while an edit is
@@ -1279,7 +1300,7 @@ export function prepareDesktopProfile(
   if (marketSelection.requested === DESKTOP_MARKET_IDENTITIES.dshMarket.provider) {
     providerAwareDisabledBundles.delete(DESKTOP_MARKET_IDENTITIES.dshMarket.packageName)
   }
-  if (hooks.aaEnabled === true) providerAwareDisabledBundles.delete(AA_PACKAGE_NAME)
+  if (aaEnabled) providerAwareDisabledBundles.delete(AA_PACKAGE_NAME)
   for (const layer of activeDesktopProfileLayers(profile, providerAwareDisabledBundles)) {
     if (layer.packageName === AA_PACKAGE_NAME) { aaLayer = layer; continue }
     if (layer.packageName === DESKTOP_MARKET_IDENTITIES.dshMarket.packageName) {
@@ -1348,7 +1369,7 @@ export function prepareDesktopProfile(
   ], isAaEntry)
   const aaPatches: PatchOptions[] = []
   let aaFailure = loadedProfile.aaFailure
-  if (hooks.aaEnabled === true && aaFailure === undefined) {
+  if (aaEnabled && aaFailure === undefined) {
     try {
       if (ordinary.removedProviderReference) throw new Error('conflicting AA configuration was removed')
       if (!aaLayer) throw new Error('selected AA bundle layer is unavailable')
@@ -1561,15 +1582,16 @@ export function prepareDesktopProfile(
       })
     }
   }
-  if ((telemetryDisabled ?? '') !== '' && rows.has('session-telemetry-otel')) {
-    patches.push({ id: 'session-telemetry-otel', disabled: true })
-  }
-  // Upstream mounts its Desktop product analytics for every Profile named
-  // `desktop` and reports to DeepSeek's collector by default. DSH Desktop does
-  // not take part in that collection, so both rows stay off after every bundle
-  // and user layer. The exporter also requires the upstream Electron shell's
-  // DSH_CLIENT_VERSION, which this launcher never provides.
-  for (const id of UPSTREAM_PRODUCT_ANALYTICS_ROW_IDS) {
+  // Privacy hardening: this build uploads no telemetry, no Session log, and no
+  // web-search term. Upstream mounts Desktop product analytics for every Profile
+  // named `desktop` and reports to DeepSeek's collector by default; its
+  // Session-log contributor (`dsh_session_log`) uploads canonical Session events
+  // with each official model request by default; its OTel adapter uploads
+  // Session records after feedback; and its DeepSeek web_search provider sends
+  // raw search terms to the configured endpoint. All of these rows stay off
+  // after every bundle, profile, and user layer, independent of
+  // `DSH_TELEMETRY_DISABLED`.
+  for (const id of PRIVACY_HARDENING_DISABLED_ROW_IDS) {
     if (rows.has(id)) patches.push({ id, disabled: true })
   }
   // Keep the shell row enabled, but pin none of its configuration.
@@ -1601,7 +1623,7 @@ export function prepareDesktopProfile(
       profileName,
       pluginStatePath,
       marketSelection: structuredClone(marketSelection),
-      aaEnabled: hooks.aaEnabled === true,
+      aaEnabled,
     },
     profile,
     rootConfig,

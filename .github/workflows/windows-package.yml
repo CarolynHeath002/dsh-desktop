@@ -1,0 +1,53 @@
+# Privacy-hardened Windows packaging for the stable (dsh-plugin-desktop) channel.
+# Reuses the official ci.yml `desktop-windows` job's exact command sequence and
+# adds artifact upload so a dispatched run actually delivers the installer and
+# the portable archive. Runs the stable workspace only.
+name: windows-hardened-package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The pinned upstream submodule is public; recursive checkout needs no credentials.
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.2
+      - run: corepack enable
+      - name: Resolve Yarn cache folder
+        id: yarn-cache
+        run: echo "dir=$(yarn config get cacheFolder)" >> "$env:GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ${{ steps.yarn-cache.outputs.dir }}
+          key: yarn-Windows-x64-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+      - run: yarn install --immutable
+      # The official Windows packaging gate: build, platform tests, packaged-runtime
+      # smoke. It also validates the privacy hardening rows inside the packed app.
+      - run: yarn workspace dsh-plugin-desktop check:win-package:platform
+      - name: Build Windows installer
+        env:
+          DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
+        run: yarn workspace dsh-plugin-desktop dist:win
+      - name: Build Windows portable archive
+        env:
+          DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
+        run: yarn workspace dsh-plugin-desktop dist:win-portable
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-windows-hardened
+          if-no-files-found: error
+          path: |
+            dsh-plugin-desktop/dist/*-Setup.exe
+            dsh-plugin-desktop/dist/*-Portable.zip

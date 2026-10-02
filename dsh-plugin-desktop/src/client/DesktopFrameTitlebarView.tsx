@@ -17,7 +17,7 @@ export interface DesktopFrameTitlebarInjected {
   readonly environment: DesktopClientEnvironment
   readonly api: Pick<
     DesktopSettingsApi,
-    'openTerminal' | 'restart' | 'restartToRecovery' | 'reloadRenderer' | 'toggleDeveloperTools' | 'checkForUpdates'
+    'openTerminal' | 'restart' | 'restartToRecovery' | 'reloadRenderer' | 'toggleDeveloperTools'
   >
   readonly remoteControl?: { readonly seen: boolean; open(): Promise<void> }
   readonly setMode: (mode: DesktopClientMode) => Promise<void>
@@ -29,13 +29,16 @@ export function DesktopVersionControl({
   t,
 }: {
   readonly version: string
-  readonly checkForUpdates: () => Promise<void>
+  /** Privacy hardening: omitted while the in-app update channel is removed. */
+  readonly checkForUpdates?: () => Promise<void>
   readonly t: (key: DesktopSettingsLocaleKey) => string
 }) {
   const [checking, setChecking] = useState(false)
   const [failed, setFailed] = useState(false)
   const runCheck = (): void => {
-    if (checking) return
+    // Privacy hardening: the update channel is removed; nothing invokes this
+    // while no caller supplies a check function.
+    if (checking || checkForUpdates === undefined) return
     setChecking(true)
     setFailed(false)
     void checkForUpdates()
@@ -58,16 +61,18 @@ export function DesktopVersionControl({
           <span>{t('currentVersion')}</span>
           <strong>{visibleVersion}</strong>
         </div>
-        <Button
-          className="dshDesktopVersionCheckButton"
-          disabled={checking}
-          size="sm"
-          variant="outline"
-          onClick={runCheck}
-        >
-          <RefreshCw aria-hidden="true" />
-          <span>{t(checking ? 'checkingForUpdates' : 'checkForUpdates')}</span>
-        </Button>
+        {checkForUpdates !== undefined && (
+          <Button
+            className="dshDesktopVersionCheckButton"
+            disabled={checking}
+            size="sm"
+            variant="outline"
+            onClick={runCheck}
+          >
+            <RefreshCw aria-hidden="true" />
+            <span>{t(checking ? 'checkingForUpdates' : 'checkForUpdates')}</span>
+          </Button>
+        )}
         {failed && <span className="dshDesktopVersionCheckError" role="alert">{t('checkForUpdatesError')}</span>}
       </HoverCardContent>
     </HoverCard>
@@ -176,7 +181,7 @@ export function DesktopFrameTitlebarView({ api, environment, setMode, t, remoteC
     >
       <div className="dshDesktopFrameIdentity">
         <span className="dshDesktopFrameProduct">DSH Desktop</span>
-        <DesktopVersionControl version={environment.version} checkForUpdates={api.checkForUpdates} t={t} />
+        <DesktopVersionControl version={environment.version} t={t} />
         <DesktopModeControl
           mode={environment.mode}
           setMode={setMode}

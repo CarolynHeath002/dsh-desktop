@@ -18,6 +18,11 @@
       name: dsh-plugin-desktop/profiles
     - id: desktop-updates
       name: dsh-plugin-desktop/updates
+      # Privacy hardening: the in-app update channel is removed entirely. No
+      # scheduled version request, no manual check, no installer download, and
+      # no runtime contact with dshdesktop.cn. Update this build by re-running
+      # the packaging workflow instead.
+      disabled: true
 
 # A desktop launch has no terminal operator waiting for the Web readiness line.
 - id: web-runtime

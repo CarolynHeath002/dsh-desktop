@@ -103,6 +103,9 @@ export function applyDesktopSettings(
       setMode,
       desktopSettings,
       notificationSettings,
+      // Privacy hardening: the in-app update channel is removed, so the Host
+      // cannot check for updates and the settings section stays hidden.
+      capabilities: { updates: false },
     }),
   }, DesktopSettingsSection))
   ctx.slots.inject('settings.action', () => ctx.slots.register({

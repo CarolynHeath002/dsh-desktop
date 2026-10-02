@@ -39,7 +39,6 @@ import {
   installDesktopPnpmRuntime,
 } from './desktop-runtime-environment.ts'
 import { desktopProductVersion, ElectronDesktopRuntime } from './electron-runtime.ts'
-import { getOrCreateDesktopInstallationId } from './desktop-installation-id.ts'
 import {
   createDesktopFailLoudProcess,
   describeDesktopChildProcess,
@@ -607,7 +606,8 @@ async function start(): Promise<void> {
     },
   )
   let restartRequested = false
-  const installationId = await getOrCreateDesktopInstallationId(app.getPath('userData'))
+  // Privacy hardening: no installation UUID is generated, persisted, or sent.
+  // The update adapter therefore omits `X-DSH-Desktop-Installation-Id` entirely.
   runtime = new ElectronDesktopRuntime(async target => {
     if (shutdown === undefined) {
       throw new Error('dsh-plugin-desktop: shutdown coordinator is not ready')
@@ -636,7 +636,7 @@ async function start(): Promise<void> {
     // Main owns every pre-health failure branch. Returning true prevents the
     // legacy Renderer recovery dialog from racing the native startup window.
     return report.status === 'failed'
-  }, electronLogger, undefined, undefined, installationId)
+  }, electronLogger, undefined, undefined)
   const finalExit = (code: number): void => { nativeExit.finish(code) }
   shutdown = createDesktopShutdown(
     async () => { await generation.release() },
@@ -1298,7 +1298,11 @@ async function start(): Promise<void> {
       ? legacyMarketSelection
       : desktopProfileMarketSnapshot(profilePreferences.market)
     const preparationHooks = {
-      get aaEnabled() { return safeModePaths === undefined && profilePreferences?.aaEnabled === true },
+      // Privacy hardening: the Agents Anywhere remote-control bridge relays
+      // Sessions, timelines, and attachments through an external server, so this
+      // build never composes it. The stored preference stays untouched and can be
+      // re-enabled by reverting this line.
+      get aaEnabled() { return false },
       lanAddresses,
       onSettingsDocumentResolved: (settingsDocument: string) => {
         if (startupRecoveryConfigurationPaths === undefined) return

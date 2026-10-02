@@ -409,6 +409,7 @@ virtualStoreDirMaxLength: 60
     }))
     expect(rows.find(row => row.id === 'desktop-updates')).toEqual(expect.objectContaining({
       name: 'dsh-plugin-desktop/updates',
+      disabled: true,
     }))
     expect(rows.find(row => row.id === 'desktop-notifications')).toEqual(expect.objectContaining({
       name: 'dsh-plugin-desktop/notifications',
@@ -699,6 +700,35 @@ virtualStoreDirMaxLength: 60
     for (const id of UPSTREAM_PRODUCT_ANALYTICS_ROW_IDS) {
       expect(rows.find(row => row.id === id)).toEqual(expect.objectContaining({ disabled: true }))
     }
+  })
+
+  it('keeps the DeepSeek web-search rows off even when a user patch enables them', () => {
+    const home = temporaryHome()
+    writeFileSync(join(ensureDesktopProfile(home), 'cordis.patch.yml'), [
+      '- id: web-search-deepseek',
+      '  disabled: false',
+      '- id: ui-settings-web-search',
+      '  disabled: false',
+      '',
+    ].join('\n'))
+
+    const rows = composeEntries([prepareDesktopProfile(undefined, home, 'darwin').patches])
+
+    expect(rows.find(row => row.id === 'web-search-deepseek')).toEqual(expect.objectContaining({ disabled: true }))
+    expect(rows.find(row => row.id === 'ui-settings-web-search')).toEqual(expect.objectContaining({ disabled: true }))
+  })
+
+  it('keeps the in-app update channel off even when a user patch enables it', () => {
+    const home = temporaryHome()
+    writeFileSync(join(ensureDesktopProfile(home), 'cordis.patch.yml'), [
+      '- id: desktop-updates',
+      '  disabled: false',
+      '',
+    ].join('\n'))
+
+    const rows = composeEntries([prepareDesktopProfile(undefined, home, 'darwin').patches])
+
+    expect(rows.find(row => row.id === 'desktop-updates')).toEqual(expect.objectContaining({ disabled: true }))
   })
 
   it('boots a selected Web profile without overriding its compatibility UI rows', () => {
