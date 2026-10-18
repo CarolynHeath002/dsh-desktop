@@ -39,6 +39,46 @@ declare module '@deepseek-ai/cordis' {
 const TELEMETRY_ROW_ID = 'session-telemetry-otel'
 
 /**
+ * Egress rows this repository force-disables at the final composition layer,
+ * keyed by the bundle that declares them. When that bundle mounts, all of its
+ * rows must compose together: an upstream split, rename, or move surfaces as a
+ * missing id and fails loud instead of leaving the moved row enabled. Profiles
+ * that do not mount the bundle skip the group, so test fixtures with synthetic
+ * bundles and custom compositions without these bundles are unaffected.
+ */
+const PRIVACY_HARDENING_ROW_FAMILIES: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh-base': ['session-log-deepseek', 'session-telemetry-otel', 'web-search-deepseek', 'web-deepseek-api'],
+  '@deepseek-ai/dsh-web-app': ['desktop-product-telemetry', 'product-analytics', 'ui-settings-web-search'],
+}
+
+/**
+ * Resolve the privacy-hardening disables for the composed rows. Each present
+ * hardened row of a mounted bundle becomes a final `disabled: true` patch;
+ * rows of unmounted bundles export nothing and need no patch. A mounted
+ * bundle whose hardened rows do not all compose throws: the bundle changed
+ * and the list above must be reviewed before the launch continues, because
+ * layers below this one cannot be trusted to keep the egress row off.
+ * @param presentIds - row ids present after every bundle, profile, home, and overlay layer.
+ * @param startedBundles - bundle packages the launcher mounted for this profile.
+ * @returns one disable patch per present hardened row, in group declaration order.
+ */
+export function resolvePrivacyHardeningPatches(
+  presentIds: ReadonlySet<string>, startedBundles: readonly string[],
+): PatchOptions[] {
+  const patches: PatchOptions[] = []
+  for (const [bundle, rowIds] of Object.entries(PRIVACY_HARDENING_ROW_FAMILIES)) {
+    if (!startedBundles.includes(bundle)) continue
+    const missing = rowIds.filter(id => !presentIds.has(id))
+    if (missing.length > 0) {
+      throw new Error(`privacy hardening is stale for the ${bundle} rows: missing [${missing.join(', ')}]; `
+        + 'update PRIVACY_HARDENING_ROW_FAMILIES in packages/boot/app-boot/src/profile-context.ts')
+    }
+    patches.push(...rowIds.map(id => ({ id, disabled: true })))
+  }
+  return patches
+}
+
+/**
  * Resolve the telemetry opt-out switch into its boot patch. ANY non-empty
  * value (including `'0'`/`'false'`) disables: a privacy switch prefers
  * off-by-mistake over on-by-mistake. A composition without the telemetry row
@@ -78,8 +118,10 @@ export function readProfilePatches(binName: string, context: ProfileContext, ini
     ...(loadOptionalPatches(binName, join(context.home, PROFILE_PATCH_FILENAME)) ?? []),
     ...context.overlays,
   ])
+  const composed = composeEntries([patches])
   const telemetryPatch = resolveTelemetryPatch(context.telemetryDisabledEnv,
-    composeEntries([patches]).some(row => row.id === TELEMETRY_ROW_ID))
+    composed.some(row => row.id === TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) patches.push(telemetryPatch)
+  patches.push(...resolvePrivacyHardeningPatches(new Set(composed.map(row => row.id)), context.startedBundles))
   return patches
 }

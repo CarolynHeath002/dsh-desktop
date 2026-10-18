@@ -27,6 +27,7 @@ import {
   removeLinkProjections,
   reportSkippedBundles,
   resolveBundleDir,
+  resolvePrivacyHardeningPatches,
   resolveProfileDir,
   writeProfileManifest,
   type Profile,
@@ -205,6 +206,69 @@ it('composes current files from profile data and retains launch overlay and tele
   expect(composeEntries([readProfilePatches('test', { ...enabled, overlays: [] })])[0]?.disabled).toBe(true)
   writeFileSync(patchPath, '- id: session-telemetry-otel\n  disabled: false\n')
   expect(composeEntries([readProfilePatches('test', { ...enabled, overlays: [] })])[0]?.disabled).toBe(false)
+})
+
+describe('privacy hardening', () => {
+  const hardenedBundlePatch = '- insert:\n'
+    + '  - id: session-log-deepseek\n    name: session-log\n'
+    + '  - id: session-telemetry-otel\n    name: telemetry\n'
+    + '  - id: web-search-deepseek\n    name: web-search\n'
+    + '  - id: web-deepseek-api\n    name: web-deepseek-api\n'
+    + '  - id: other-row\n    name: other\n'
+
+  const profileContext = (installAnchor: string, home: string, startedBundles: readonly string[]) => ({
+    name: 'test', dir: resolveProfileDir('test', home), patchPath: join(resolveProfileDir('test', home), 'application.patch.yml'),
+    installAnchor, home, cwd: home, startedBundles, overlays: [] as const, telemetryDisabledEnv: undefined,
+  })
+
+  it('unit: disables present rows of mounted bundles and skips unmounted bundles', () => {
+    const ids = new Set([
+      'session-log-deepseek', 'session-telemetry-otel', 'web-search-deepseek', 'web-deepseek-api',
+      'desktop-product-telemetry', 'product-analytics', 'ui-settings-web-search',
+    ])
+    expect(resolvePrivacyHardeningPatches(ids, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])).toEqual([
+      { id: 'session-log-deepseek', disabled: true },
+      { id: 'session-telemetry-otel', disabled: true },
+      { id: 'web-search-deepseek', disabled: true },
+      { id: 'web-deepseek-api', disabled: true },
+      { id: 'desktop-product-telemetry', disabled: true },
+      { id: 'product-analytics', disabled: true },
+      { id: 'ui-settings-web-search', disabled: true },
+    ])
+    expect(resolvePrivacyHardeningPatches(new Set(['product-analytics']), ['@deepseek-ai/dsh-base'])).toEqual([])
+  })
+
+  it('unit: fails loud when a mounted bundle composes only part of its hardened rows', () => {
+    expect(() => resolvePrivacyHardeningPatches(
+      new Set(['desktop-product-telemetry', 'ui-settings-web-search']), ['@deepseek-ai/dsh-web-app'],
+    )).toThrow(/@deepseek-ai\/dsh-web-app rows: missing \[product-analytics\]/u)
+    expect(() => resolvePrivacyHardeningPatches(new Set(), ['@deepseek-ai/dsh-base']))
+      .toThrow(/@deepseek-ai\/dsh-base rows: missing \[session-log-deepseek, session-telemetry-otel, web-search-deepseek, web-deepseek-api\]/u)
+  })
+
+  it('disables every hardened row of a mounted bundle below user layers and overlays', () => {
+    const home = tmp()
+    const installAnchor = stageInstallation({ '@deepseek-ai/dsh-base': { patch: hardenedBundlePatch } })
+    const dir = resolveProfileDir('test', home)
+    initProfile(dir, ['@deepseek-ai/dsh-base'])
+    writeFileSync(join(dir, 'application.patch.yml'), '- id: web-deepseek-api\n  disabled: false\n')
+    const context = { ...profileContext(installAnchor, home, ['@deepseek-ai/dsh-base']), overlays: [{ id: 'session-log-deepseek', disabled: false }] }
+    const rows = composeEntries([readProfilePatches('test', context)])
+    for (const id of ['session-log-deepseek', 'session-telemetry-otel', 'web-search-deepseek', 'web-deepseek-api']) {
+      expect(rows.find(row => row.id === id)?.disabled).toBe(true)
+    }
+    expect(rows.find(row => row.id === 'other-row')?.disabled).toBe(false)
+  })
+
+  it('fails loud when a mounted bundle no longer composes every hardened row', () => {
+    const home = tmp()
+    const stalePatch = hardenedBundlePatch.replace('  - id: web-deepseek-api\n    name: web-deepseek-api\n', '')
+    const installAnchor = stageInstallation({ '@deepseek-ai/dsh-base': { patch: stalePatch } })
+    const dir = resolveProfileDir('test', home)
+    initProfile(dir, ['@deepseek-ai/dsh-base'])
+    expect(() => readProfilePatches('test', profileContext(installAnchor, home, ['@deepseek-ai/dsh-base'])))
+      .toThrow(/privacy hardening is stale for the @deepseek-ai\/dsh-base rows: missing \[web-deepseek-api\]/u)
+  })
 })
 
 describe('initProfile', () => {
