@@ -42,6 +42,11 @@ on:
         type: string
         default: ''
         required: false
+      publish_release:
+        description: '发布 Release：打包成功后将安装包发布为 GitHub Release（tag v<版本号>，未签名构建自动标记 prerelease）'
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -54,6 +59,8 @@ jobs:
   package:
     # The fork builds on GitHub-hosted runners; upstream routes this workflow to
     # its self-hosted `dsh-win-package-trial` label, which does not exist here.
+    # The dispatch-only guard also keeps modified-workflow pushes from running it.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 120
     defaults:
@@ -68,6 +75,10 @@ jobs:
       DSH_PACKAGING_CONFIG_DIR: ${{ github.workspace }}\apps\desktop
       PACKAGE_TEST_RELEASE_ID: ${{ inputs.test_release_id }}
       PACKAGE_SIGNING: ${{ inputs.signing }}
+    outputs:
+      version: ${{ steps.settings.outputs.version }}
+      sha: ${{ steps.checkout.outputs.commit }}
+      artifact: windows-x64-${{ inputs.signing == 'unsigned' && 'unsigned' || 'signed' }}-${{ steps.settings.outputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Reset packaging checkout
         working-directory: ${{ runner.temp }}
@@ -171,3 +182,56 @@ jobs:
           path: ${{ steps.retained.outputs.directory }}/*
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    # The fork publishes the retained build straight to a GitHub Release; upstream
+    # routes publication through its self-hosted desktop-publish workflow with
+    # approval Environments. Unsigned builds are marked prerelease, matching the
+    # upstream caution against distributing unsigned installers.
+    needs: package
+    if: inputs.publish_release && needs.package.result == 'success'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_VERSION: ${{ needs.package.outputs.version }}
+      RELEASE_TAG: v${{ needs.package.outputs.version }}
+      RELEASE_SHA: ${{ needs.package.outputs.sha }}
+      RELEASE_PRERELEASE: ${{ inputs.signing == 'unsigned' }}
+    steps:
+      - name: Download retained installer from this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ needs.package.outputs.artifact }}
+        run: gh run download ${{ github.run_id }} --name $env:ARTIFACT_NAME --dir retained --repo ${{ github.repository }}
+      - name: Publish GitHub release
+        working-directory: retained
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe = Get-ChildItem -Filter '*.exe' | Select-Object -First 1
+          if ($null -eq $exe) { throw 'No installer executable in the retained build' }
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash
+          "$hash  $($exe.Name)" | Set-Content "$($exe.Name).sha256" -Encoding ascii
+          $prerelease = @(); if ($env:RELEASE_PRERELEASE -eq 'true') { $prerelease += '--prerelease' }
+          $notes = @"
+          ## DSH Desktop $($env:RELEASE_VERSION) hardened（Windows x64）
+
+          官方 ``deepseek-ai/deepseek-harness`` master + 去遥测加固提交构建；来源 commit ``$($env:RELEASE_SHA)``（分支 ``hardened``）。
+
+          - 七条遥测/分析/搜索出境行在 profile 组装处强制禁用，任何用户层配置无法重新启用
+          - 自动更新通道常闭；强制策略通道封存至 ``.invalid`` 死域
+          - 未签名构建：SmartScreen 提示“未知发布者”属预期
+          - SHA256: ``$hash``（随附 .sha256 校验文件）
+          - 加固详情见仓库根 ``HARDENING.md``
+
+          > Hardened build of the official DeepSeek Harness master: telemetry, analytics, and search egress rows are force-disabled at profile composition; update and policy channels are sealed. Unsigned — the SmartScreen warning is expected.
+          "@
+          gh release create $env:RELEASE_TAG "$($exe.Name)" "$($exe.Name).sha256" `
+            --repo ${{ github.repository }} --target $env:RELEASE_SHA `
+            --title "DSH Desktop $($env:RELEASE_VERSION) hardened (Windows x64, unsigned)" `
+            --notes $notes $prerelease
