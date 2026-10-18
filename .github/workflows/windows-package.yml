@@ -66,7 +66,6 @@ jobs:
       DSH_TELEMETRY_DISABLED: '1'
       DSH_PACKAGING_PRESET: ${{ inputs.preset }}
       DSH_PACKAGING_CONFIG_DIR: ${{ github.workspace }}\apps\desktop
-      DSH_DESKTOP_RELEASES_DIR: ${{ runner.temp }}\releases
       PACKAGE_TEST_RELEASE_ID: ${{ inputs.test_release_id }}
       PACKAGE_SIGNING: ${{ inputs.signing }}
     steps:
@@ -141,6 +140,9 @@ jobs:
         env:
           PACKAGE_SOURCE_SHA: ${{ steps.checkout.outputs.commit }}
           PACKAGE_VERSION: ${{ steps.settings.outputs.version }}
+          # The releases root must sit outside the checkout; step env is the
+          # only level where the runner context is available.
+          DSH_DESKTOP_RELEASES_DIR: ${{ runner.temp }}\releases
         run: node --import tsx apps/desktop/scripts/retain-desktop-ci.ts
       - name: Retain packaging diagnostics
         if: always() && steps.checkout.outcome == 'success'
