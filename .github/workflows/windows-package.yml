@@ -65,6 +65,8 @@ jobs:
       DSH_DESKTOP_UPDATE_CHANNEL: ${{ inputs.update_channel }}
       DSH_TELEMETRY_DISABLED: '1'
       DSH_PACKAGING_PRESET: ${{ inputs.preset }}
+      DSH_PACKAGING_CONFIG_DIR: ${{ github.workspace }}\apps\desktop
+      DSH_DESKTOP_RELEASES_DIR: ${{ runner.temp }}\releases
       PACKAGE_TEST_RELEASE_ID: ${{ inputs.test_release_id }}
       PACKAGE_SIGNING: ${{ inputs.signing }}
     steps:
