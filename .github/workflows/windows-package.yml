@@ -13,7 +13,7 @@ on:
         description: '签名方式：unsigned 仅限内部调试，禁止发布到 test / production 或用于自动更新；需要发布请选择 signed（EV 硬件令牌）'
         type: choice
         options: [signed, unsigned]
-        default: signed
+        default: unsigned
         required: true
       test_release_id:
         description: '测试 release ID：32 位小写十六进制随机前缀（非鉴权）；留空使用机器默认值，连续升级测试须保持相同值'
@@ -23,7 +23,7 @@ on:
       source_ref:
         description: '打包源码：test 支持仓库内分支或 dsh-v* tag；production 仅支持 master 或 dsh-v* tag；源码须包含 CI 适配脚本'
         type: string
-        default: master
+        default: hardened
         required: true
       update_channel:
         description: '升级通道：nightly 或 latest（须为稳定版本）；自动更新不会切换通道'
@@ -52,7 +52,9 @@ concurrency:
 
 jobs:
   package:
-    runs-on: dsh-win-package-trial
+    # The fork builds on GitHub-hosted runners; upstream routes this workflow to
+    # its self-hosted `dsh-win-package-trial` label, which does not exist here.
+    runs-on: windows-latest
     timeout-minutes: 120
     defaults:
       run:
