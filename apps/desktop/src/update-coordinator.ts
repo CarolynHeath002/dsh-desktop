@@ -1,7 +1,5 @@
 /** User-authorized downloads and separate installation of one version-bound Desktop release. */
 
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { app } from 'electron'
 import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
 import { gt, valid } from 'semver'
@@ -43,7 +41,9 @@ export class DesktopUpdateCoordinator {
    * @param publish - Receives observable states for every Desktop window.
    * @param beforeRestart - Completes task authorization, admission locking, and owned-process shutdown.
    * @param updater - Process-owned Electron updater, replaceable at the network/platform test boundary.
-   * @param enabled - Whether this process has a packaged update source.
+   * @param enabled - Whether this process has a packaged update source. This repository ships no
+   *   update channel: the packaged app must never contact an update feed, so the default gate is a
+   *   constant false and every check, download, and install fails closed before any network call.
    * @param currentVersion - Actual installed application version.
    * @param channel - Installed package channel; omitted test/local callers retain nightly.
    * @param downloadResult - Once per completed download attempt, including platform preparation failures.
@@ -52,7 +52,7 @@ export class DesktopUpdateCoordinator {
     private readonly publish: (state: DesktopUpdateState) => DesktopUpdateState,
     private readonly beforeRestart: () => Promise<boolean>,
     private readonly updater: AppUpdater = autoUpdater,
-    private readonly enabled: () => boolean = () => app.isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml')),
+    private readonly enabled: () => boolean = () => false,
     private readonly currentVersion: () => string = () => app.getVersion(),
     private readonly downloadResult?: (success: boolean, reason?: string) => void,
     private readonly channel: 'nightly' | 'latest' = 'nightly',
