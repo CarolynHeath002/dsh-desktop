@@ -30,7 +30,9 @@ divergence minimal so upstream merges stay small.
    unsigned on `windows-latest` with `source_ref` defaulting to `hardened`. A `publish_release`
    input gates a `publish` job that turns the retained build into a GitHub Release (tag
    `v<version>`; unsigned builds are marked prerelease), and the package job runs only on
-   `workflow_dispatch` so modified-workflow pushes cannot trigger the pipeline.
+   `workflow_dispatch` so modified-workflow pushes cannot trigger the pipeline. Because upstream
+   retention resolves the building machine in a publish route table keyed by runner name, the fork
+   declares the ephemeral hosted runner as its own `dsh-hosted-<run>` route at runtime.
 
 ## Kept as upstream
 
@@ -66,7 +68,7 @@ divergence 1 disables; the relay's failure path leaves `analyticsEnabled` false.
 1. **末层强制禁用出境行**（`packages/boot/app-boot/src/profile-context.ts`）。`readProfilePatches()` 为已挂载 bundle 的每个出境行追加最终 `disabled: true` patch：base 的 `session-log-deepseek`、`session-telemetry-otel`、`web-search-deepseek`、`web-deepseek-api`；web-app 的 `desktop-product-telemetry`、`product-analytics`、`ui-settings-web-search`。任何 profile、home 或 overlay 层都无法重新启用；HMR 重组合、配置编辑器与 worker 运行时都经过同一条缝。已挂载 bundle 的加固行未全部组合时抛错并列出缺失 id，上游移动行会在启动时显式失败。`DSH_TELEMETRY_DISABLED` 仍被接受，但加固不再依赖它。
 2. **更新通道常闭**（`apps/desktop/src/update-coordinator.ts`）。协调器默认 `enabled` 闸门为常量 `false`：任何 feed 轮询、下载、安装都到不了 `download.deepseek.com`。"检查更新"菜单保留，并复用既有"无打包更新源"失败路径。上游 `apps/desktop/scripts/` 下的发布/上传工具不动（仅构建期使用）。
 3. **强制更新策略通道为死端**（`apps/desktop/presets/test.env`）。打包要求策略 origin；fork 封存 `https://dsh-policy.invalid`（RFC 2606 保留名）。轮询发不出任何载荷：DNS NXDOMAIN 先于任何 HTTP 字节。封存的更新源 `https://dsh-update.invalid` 同理，作为分歧 2 之后的纵深防御。
-4. **打包与发布在 GitHub 托管 runner 上进行**（`.github/workflows/windows-package.yml`）。上游将该工作流路由到其自托管 `dsh-win-package-trial` 标签；fork 在 `windows-latest` 上出未签名包，`source_ref` 默认 `hardened`。`publish_release` 输入开启的 `publish` job 会把保留产物发布为 GitHub Release（tag `v<版本号>`，未签名构建标记 prerelease）；package job 仅在 `workflow_dispatch` 时运行，修改工作流文件的 push 不会触发流水线。
+4. **打包与发布在 GitHub 托管 runner 上进行**（`.github/workflows/windows-package.yml`）。上游将该工作流路由到其自托管 `dsh-win-package-trial` 标签；fork 在 `windows-latest` 上出未签名包，`source_ref` 默认 `hardened`。`publish_release` 输入开启的 `publish` job 会把保留产物发布为 GitHub Release（tag `v<版本号>`，未签名构建标记 prerelease）；package job 仅在 `workflow_dispatch` 时运行，修改工作流文件的 push 不会触发流水线。上游的保留步骤按 runner 名在发布路由表中解析构建机，fork 在运行时把当次托管 runner 声明为它自己的 `dsh-hosted-<run>` 路由。
 
 ## 保持上游原样
 

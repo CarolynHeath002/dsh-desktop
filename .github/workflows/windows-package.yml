@@ -156,6 +156,14 @@ jobs:
           if ($env:PACKAGE_SIGNING -eq 'unsigned') { $packageArgs += '--unsigned' }
           pnpm @packageArgs
           exit $LASTEXITCODE
+      - name: Provide the hosted runner retention route
+        # Upstream retention looks up the building machine in the publish route
+        # table; hosted runner names are random per job, so the fork declares
+        # the current runner as its own single-label route at runtime.
+        run: |
+          $routes = [ordered]@{}
+          $routes[$env:RUNNER_NAME] = @{ label = "dsh-hosted-$env:GITHUB_RUN_ID"; target = @('win-x64') }
+          "DESKTOP_PUBLISH_RUNNERS=$($routes | ConvertTo-Json -Compress)" >> $env:GITHUB_ENV
       - name: Retain complete package outside the checkout
         id: retained
         env:
