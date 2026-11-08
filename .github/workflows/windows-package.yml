@@ -43,11 +43,11 @@ on:
         default: ''
         required: false
       compression_level:
-        description: '安装器压缩等级：3 打包较快，7 压缩更强；留空沿用脚本默认'
+        description: '安装器压缩等级：3 打包较快，7 压缩更强'
         type: choice
-        options: ['', '3', '7']
+        options: ['3', '7']
         default: '3'
-        required: false
+        required: true
       publish_release:
         description: '发布 Release：打包成功后将安装包发布为 GitHub Release（tag v<版本号>，未签名构建自动标记 prerelease）'
         type: boolean
