@@ -26,21 +26,27 @@ on:
         default: hardened
         required: true
       update_channel:
-        description: '升级通道：nightly 或 latest（须为稳定版本）；自动更新不会切换通道'
+        description: '升级通道：nightly 或 stable（须为稳定版本）；自动更新不会切换通道；安装器内封存 .invalid 死源，此值仅进元数据'
         type: choice
-        options: [nightly, latest]
+        options: [nightly, stable]
         default: nightly
         required: true
       version_mode:
-        description: '版本模式：default 为 test 自动编号、production 跟随产品；product 保留原版本，auto 自动编号，manual 手填'
+        description: '版本模式：default 按环境自动选择（test 取 build-number，production 取 follow-dsh）；follow-dsh 跟随 dsh 包版本号；build-number 自动追加构建编号；manual 手填'
         type: choice
-        options: [default, product, auto, manual]
+        options: [default, follow-dsh, build-number, manual]
         default: default
         required: true
       build_version:
         description: '手动版本号：仅 manual 时填写完整版本；须为产品原版本或受支持的预发布后缀'
         type: string
         default: ''
+        required: false
+      compression_level:
+        description: '安装器压缩等级：3 打包较快，7 压缩更强；留空沿用脚本默认'
+        type: choice
+        options: ['', '3', '7']
+        default: '3'
         required: false
       publish_release:
         description: '发布 Release：打包成功后将安装包发布为 GitHub Release（tag v<版本号>，未签名构建自动标记 prerelease）'
@@ -68,13 +74,16 @@ jobs:
         shell: pwsh
     env:
       PACKAGE_SOURCE_REF: ${{ inputs.source_ref }}
-      PACKAGE_VERSION_MODE: ${{ inputs.version_mode }}
+      # Legacy mode names keep the fork's saved dispatch payloads working until
+      # upstream retires the parser aliases.
+      PACKAGE_VERSION_MODE: ${{ inputs.version_mode == 'follow-dsh' && 'product' || inputs.version_mode == 'build-number' && 'auto' || inputs.version_mode }}
       DSH_DESKTOP_UPDATE_CHANNEL: ${{ inputs.update_channel }}
       DSH_TELEMETRY_DISABLED: '1'
       DSH_PACKAGING_PRESET: ${{ inputs.preset }}
       DSH_PACKAGING_CONFIG_DIR: ${{ github.workspace }}\apps\desktop
       PACKAGE_TEST_RELEASE_ID: ${{ inputs.test_release_id }}
       PACKAGE_SIGNING: ${{ inputs.signing }}
+      PACKAGE_WINDOWS_COMPRESSION_LEVEL: ${{ inputs.compression_level }}
     outputs:
       version: ${{ steps.settings.outputs.version }}
       sha: ${{ steps.checkout.outputs.commit }}
@@ -114,6 +123,7 @@ jobs:
           const branch=cp.execFileSync('git',['rev-parse','--abbrev-ref','HEAD'],{encoding:'utf8'}).trim();
           if(branch==='HEAD' || branch!==ref || ref.startsWith('refs/')) throw Error('Select a branch in this repository, not a SHA or PR ref');
           }
+          if(!fs.readFileSync('apps/desktop/scripts/retain-desktop-ci.ts','utf8').includes('--check-runner')) throw Error('Source lacks independent Desktop artifact archival support; select a newer source');
           if(!fs.readFileSync('apps/desktop/scripts/desktop-ci-version.mjs','utf8').includes('PACKAGE_VERSION_MODE')) throw Error('Source lacks Desktop channel/version CI support; select a newer release');"
       - uses: pnpm/action-setup@v5.0.0
         with:
